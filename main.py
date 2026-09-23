@@ -33,7 +33,7 @@ def get_seatalk_token():
     return None
 
 
-def send_seatalk_card(token, summary, meeting_link):
+def send_seatalk_card(token, summary, meeting_link, event_description=""):
     url = "https://openapi.seatalk.io/messaging/v2/group_chat"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -42,41 +42,56 @@ def send_seatalk_card(token, summary, meeting_link):
 
     link = meeting_link if meeting_link else "https://calendar.google.com"
 
+    elements = [
+        {
+            "element_type": "title",
+            "title": {
+                "text": "⏰ Lembrete de Treinamento"
+            }
+        },
+        {
+            "element_type": "description",
+            "description": {
+                "format": 1,
+                "text": f"O treinamento **{summary}** vai começar em 10 minutos!"
+            }
+        }
+    ]
+
+    # Só adiciona o bloco de descrição do evento se ele tiver conteúdo.
+    if event_description.strip():
+        elements.append({
+            "element_type": "description",
+            "description": {
+                "format": 1,
+                "text": event_description.strip()
+            }
+        })
+
+    elements.append(
+        {
+            "element_type": "button",
+            "button": {
+                "button_type": "redirect",
+                "text": "Entrar no treinamento",
+                "mobile_link": {
+                    "type": "web",
+                    "path": link
+                },
+                "desktop_link": {
+                    "type": "web",
+                    "path": link
+                }
+            }
+        }
+    )
+
     payload = {
         "group_id": GROUP_ID,
         "message": {
             "tag": "interactive_message",
             "interactive_message": {
-                "elements": [
-                    {
-                        "element_type": "title",
-                        "title": {
-                            "text": "⏰ Lembrete de Treinamento"
-                        }
-                    },
-                    {
-                        "element_type": "description",
-                        "description": {
-                            "format": 1,
-                            "text": f"O treinamento **{summary}** vai começar em 10 minutos!"
-                        }
-                    },
-                    {
-                        "element_type": "button",
-                        "button": {
-                            "button_type": "redirect",
-                            "text": "Entrar no treinamento",
-                            "mobile_link": {
-                                "type": "web",
-                                "path": link
-                            },
-                            "desktop_link": {
-                                "type": "web",
-                                "path": link
-                            }
-                        }
-                    }
-                ]
+                "elements": elements
             }
         }
     }
@@ -118,6 +133,7 @@ def check_calendar_and_notify():
         if JANELA_MIN_MINUTOS <= diff_minutes <= JANELA_MAX_MINUTOS:
             summary = event.get("summary", "Treinamento sem título")
             meeting_link = event.get("hangoutLink", event.get("location", ""))
+            event_description = event.get("description", "")
 
             if token is None:
                 token = get_seatalk_token()
@@ -125,7 +141,7 @@ def check_calendar_and_notify():
                     return
 
             print(f"Notificando evento: {summary}")
-            send_seatalk_card(token, summary, meeting_link)
+            send_seatalk_card(token, summary, meeting_link, event_description)
 
     if not events:
         print("Nenhum evento encontrado na janela de aviso.")
