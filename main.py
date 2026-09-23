@@ -13,16 +13,18 @@ CALENDAR_ID = "c_ba4842f0ff394c31890a1505258ed5d0f0279c7961766ba64cba3f360725325
 CREDENTIALS_FILE = "credentials.json"
 SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
-# Fuso horário configurado para Brasília / São Paulo
 TIMEZONE_LOCAL = "America/Sao_Paulo"
+
+# O workflow do GitHub Actions roda a cada 5 minutos (mínimo permitido pelo
+# GitHub). Pra não perder nem duplicar avisos, olhamos uma janela de alguns
+# minutos ao redor dos "10 minutos antes do evento", em vez de um valor fixo.
+JANELA_MIN_MINUTOS = 8
+JANELA_MAX_MINUTOS = 13
 
 
 def get_seatalk_token():
     url = "https://openapi.seatalk.io/auth/app_access_token"
-    payload = {
-        "app_id": APP_ID,
-        "app_secret": APP_SECRET
-    }
+    payload = {"app_id": APP_ID, "app_secret": APP_SECRET}
     response = requests.post(url, json=payload, timeout=10)
     data = response.json()
     if data.get("code") == 0:
@@ -31,16 +33,14 @@ def get_seatalk_token():
     return None
 
 
-def send_seatalk_card(token, title, start_time_str, description):
+def send_seatalk_card(token, summary, meeting_link):
     url = "https://openapi.seatalk.io/messaging/v2/group_chat"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
 
-    # Estrutura confirmada pela documentação oficial "Build a Card"
-    # (tag / element_type - não "msg_type" / "components")
-    desc_text = f"**Evento:** {title}\n**Horário:** {start_time_str}\n**Descrição:** {description or 'Sem descrição'}"
+    link = meeting_link if meeting_link else "https://calendar.google.com"
 
     payload = {
         "group_id": GROUP_ID,
@@ -51,14 +51,29 @@ def send_seatalk_card(token, title, start_time_str, description):
                     {
                         "element_type": "title",
                         "title": {
-                            "text": "⏰ Lembrete de Reunião!"
+                            "text": "⏰ Lembrete de Treinamento"
                         }
                     },
                     {
                         "element_type": "description",
                         "description": {
                             "format": 1,
-                            "text": desc_text
+                            "text": f"O treinamento **{summary}** vai começar em 10 minutos!"
+                        }
+                    },
+                    {
+                        "element_type": "button",
+                        "button": {
+                            "button_type": "redirect",
+                            "text": "Entrar no treinamento",
+                            "mobile_link": {
+                                "type": "web",
+                                "path": link
+                            },
+                            "desktop_link": {
+                                "type": "web",
+                                "path": link
+                            }
                         }
                     }
                 ]
@@ -76,10 +91,8 @@ def check_calendar_and_notify():
 
     tz = zoneinfo.ZoneInfo(TIMEZONE_LOCAL)
     now_local = datetime.datetime.now(tz)
-    next_10_min = now_local + datetime.timedelta(minutes=10)
-
     time_min = now_local.isoformat()
-    time_max = next_10_min.isoformat()
+    time_max = (now_local + datetime.timedelta(minutes=JANELA_MAX_MINUTOS + 2)).isoformat()
 
     print(f"Buscando eventos no fuso {TIMEZONE_LOCAL} entre {time_min} e {time_max}...")
 
@@ -93,21 +106,29 @@ def check_calendar_and_notify():
 
     events = events_result.get("items", [])
 
-    if not events:
-        print("Nenhum evento encontrado nos próximos 10 minutos.")
-        return
-
-    token = get_seatalk_token()
-    if not token:
-        return
-
+    token = None
     for event in events:
-        summary = event.get("summary", "Sem título")
-        description = event.get("description", "")
-        start = event["start"].get("dateTime", event["start"].get("date"))
+        start_str = event["start"].get("dateTime", event["start"].get("date"))
+        if "T" not in start_str:
+            continue  # evento de dia inteiro, sem horário - ignora
 
-        print(f"Notificando evento: {summary} em {start}")
-        send_seatalk_card(token, summary, start, description)
+        start_time = datetime.datetime.fromisoformat(start_str)
+        diff_minutes = (start_time - now_local).total_seconds() / 60.0
+
+        if JANELA_MIN_MINUTOS <= diff_minutes <= JANELA_MAX_MINUTOS:
+            summary = event.get("summary", "Treinamento sem título")
+            meeting_link = event.get("hangoutLink", event.get("location", ""))
+
+            if token is None:
+                token = get_seatalk_token()
+                if not token:
+                    return
+
+            print(f"Notificando evento: {summary}")
+            send_seatalk_card(token, summary, meeting_link)
+
+    if not events:
+        print("Nenhum evento encontrado na janela de aviso.")
 
 
 if __name__ == "__main__":
