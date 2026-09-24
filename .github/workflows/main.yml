@@ -25,6 +25,7 @@ jobs:
         run: echo '${{ secrets.GOOGLE_CREDENTIALS_JSON }}' > credentials.json
 
       - name: Rodar o bot
+        timeout-minutes: 2
         run: python main.py
 
       - name: Salvar controle de eventos já notificados
