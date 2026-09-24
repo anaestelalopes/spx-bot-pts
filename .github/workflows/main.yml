@@ -1,11 +1,10 @@
 name: Bot de Lembrete SeaTalk
 
 on:
-  schedule:
-    # Roda a cada 5 minutos (menor intervalo que o GitHub Actions permite).
-    # Como o script olha os próximos 10 minutos, isso cobre bem o evento.
-    - cron: "*/5 * * * *"
-  workflow_dispatch: {}  # permite rodar manualmente pelo botão "Run workflow"
+  workflow_dispatch: {}  # disparado pelo cron-job.org a cada 1 minuto, e também manualmente pelo botão "Run workflow"
+
+permissions:
+  contents: write  # necessário pra poder salvar o notified_events.json de volta no repo
 
 jobs:
   run-bot:
@@ -27,3 +26,11 @@ jobs:
 
       - name: Rodar o bot
         run: python main.py
+
+      - name: Salvar controle de eventos já notificados
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add notified_events.json
+          git diff --staged --quiet || git commit -m "Atualiza controle de eventos notificados [skip ci]"
+          git push
