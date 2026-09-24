@@ -1,6 +1,7 @@
 import datetime
 import json
 import os
+import sys
 import requests
 import zoneinfo
 from google.oauth2.service_account import Credentials
@@ -202,3 +203,6 @@ def check_calendar_and_notify():
 
 if __name__ == "__main__":
     check_calendar_and_notify()
+    print("Concluído. Encerrando processo.")
+    sys.stdout.flush()
+    os._exit(0)
