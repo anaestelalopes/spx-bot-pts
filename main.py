@@ -1,4 +1,6 @@
 import datetime
+import json
+import os
 import requests
 import zoneinfo
 from google.oauth2.service_account import Credentials
@@ -15,11 +17,40 @@ SCOPES = ["https://www.googleapis.com/auth/calendar.readonly"]
 
 TIMEZONE_LOCAL = "America/Sao_Paulo"
 
-# O workflow do GitHub Actions roda a cada 5 minutos (mínimo permitido pelo
-# GitHub). Pra não perder nem duplicar avisos, olhamos uma janela de alguns
-# minutos ao redor dos "10 minutos antes do evento", em vez de um valor fixo.
-JANELA_MIN_MINUTOS = 8
-JANELA_MAX_MINUTOS = 13
+# Com o controle de eventos já notificados (arquivo notified_events.json),
+# não tem mais risco de avisar duas vezes o mesmo evento - então a janela
+# pode ser mais generosa, cobrindo qualquer atraso do disparo do cron.
+JANELA_MIN_MINUTOS = 5
+JANELA_MAX_MINUTOS = 15
+
+NOTIFIED_FILE = "notified_events.json"
+# Quanto tempo guardar o registro de um evento já notificado antes de
+# poder "esquecer" ele (evita o arquivo crescer pra sempre).
+RETENCAO_HORAS = 24
+
+
+def load_notified():
+    if not os.path.exists(NOTIFIED_FILE):
+        return {}
+    try:
+        with open(NOTIFIED_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+def save_notified(notified):
+    with open(NOTIFIED_FILE, "w", encoding="utf-8") as f:
+        json.dump(notified, f, ensure_ascii=False, indent=2)
+
+
+def limpar_antigos(notified, now_utc):
+    limite = now_utc - datetime.timedelta(hours=RETENCAO_HORAS)
+    return {
+        event_id: ts
+        for event_id, ts in notified.items()
+        if datetime.datetime.fromisoformat(ts) > limite
+    }
 
 
 def get_seatalk_token():
@@ -106,6 +137,7 @@ def check_calendar_and_notify():
 
     tz = zoneinfo.ZoneInfo(TIMEZONE_LOCAL)
     now_local = datetime.datetime.now(tz)
+    now_utc = now_local.astimezone(datetime.timezone.utc)
     time_min = now_local.isoformat()
     time_max = (now_local + datetime.timedelta(minutes=JANELA_MAX_MINUTOS + 2)).isoformat()
 
@@ -120,17 +152,32 @@ def check_calendar_and_notify():
     ).execute()
 
     events = events_result.get("items", [])
+    print(f"Total de eventos retornados pela API: {len(events)}")
+
+    notified = limpar_antigos(load_notified(), now_utc)
+    houve_mudanca = False
 
     token = None
     for event in events:
+        event_id = event.get("id")
         start_str = event["start"].get("dateTime", event["start"].get("date"))
+        summary_debug = event.get("summary", "Sem título")
+
         if "T" not in start_str:
-            continue  # evento de dia inteiro, sem horário - ignora
+            print(f"  - '{summary_debug}': evento de dia inteiro (sem horário), ignorado.")
+            continue
+
+        if event_id in notified:
+            print(f"  - '{summary_debug}': já tinha sido notificado antes, ignorando.")
+            continue
 
         start_time = datetime.datetime.fromisoformat(start_str)
         diff_minutes = (start_time - now_local).total_seconds() / 60.0
 
-        if JANELA_MIN_MINUTOS <= diff_minutes <= JANELA_MAX_MINUTOS:
+        dentro_da_janela = JANELA_MIN_MINUTOS <= diff_minutes <= JANELA_MAX_MINUTOS
+        print(f"  - '{summary_debug}': começa em {start_str} | faltam {diff_minutes:.1f} min | dentro da janela? {dentro_da_janela}")
+
+        if dentro_da_janela:
             summary = event.get("summary", "Treinamento sem título")
             meeting_link = event.get("hangoutLink", event.get("location", ""))
             event_description = event.get("description", "")
@@ -140,8 +187,14 @@ def check_calendar_and_notify():
                 if not token:
                     return
 
-            print(f"Notificando evento: {summary}")
+            print(f"    -> Notificando evento: {summary}")
             send_seatalk_card(token, summary, meeting_link, event_description)
+
+            notified[event_id] = now_utc.isoformat()
+            houve_mudanca = True
+
+    if houve_mudanca:
+        save_notified(notified)
 
     if not events:
         print("Nenhum evento encontrado na janela de aviso.")
