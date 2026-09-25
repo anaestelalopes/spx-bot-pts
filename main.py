@@ -8,8 +8,11 @@ from google.oauth2.service_account import Credentials
 from googleapiclient.discovery import build
 
 # --- CONFIGURAÇÕES ---
-APP_ID = "MTg5MzcyOTE2NDQ1"
-APP_SECRET = "GPRU40_jkKzQO7hIwdTlv3qL2sYGIaMR"
+# APP_ID e APP_SECRET vêm de variáveis de ambiente (configuradas como Secret
+# no GitHub) em vez de ficarem escritos direto no código - importante pra
+# poder deixar o repositório público sem expor essas credenciais.
+APP_ID = os.environ["SEATALK_APP_ID"]
+APP_SECRET = os.environ["SEATALK_APP_SECRET"]
 GROUP_ID = "NzM0OTYxODk2NDQ5"
 CALENDAR_ID = "c_ba4842f0ff394c31890a1505258ed5d0f0279c7961766ba64cba3f360725325f@group.calendar.google.com"
 
@@ -85,7 +88,7 @@ def send_seatalk_card(token, summary, meeting_link, event_description=""):
             "element_type": "description",
             "description": {
                 "format": 1,
-                "text": f"O treinamento **{summary}** vai começar em alguns minutos!"
+                "text": f"O treinamento **{summary}** vai começar em 10 minutos!"
             }
         }
     ]
