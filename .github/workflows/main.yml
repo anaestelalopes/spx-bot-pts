@@ -26,6 +26,9 @@ jobs:
 
       - name: Rodar o bot
         timeout-minutes: 2
+        env:
+          SEATALK_APP_ID: ${{ secrets.SEATALK_APP_ID }}
+          SEATALK_APP_SECRET: ${{ secrets.SEATALK_APP_SECRET }}
         run: python main.py
 
       - name: Salvar controle de eventos já notificados
