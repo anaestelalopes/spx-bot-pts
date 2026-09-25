@@ -1,6 +1,8 @@
 import datetime
+import html
 import json
 import os
+import re
 import sys
 import requests
 import zoneinfo
@@ -68,6 +70,38 @@ def get_seatalk_token():
     return None
 
 
+def limpar_descricao_html(texto):
+    """Converte a descrição do evento (que o Google Calendar salva como HTML
+    quando criada com formatação rica) num texto simples, com Markdown básico
+    que o SeaTalk entende."""
+    if not texto:
+        return ""
+
+    t = texto
+    t = re.sub(r"<br\s*/?>", "\n", t, flags=re.IGNORECASE)
+    t = re.sub(r"</p>", "\n\n", t, flags=re.IGNORECASE)
+    t = re.sub(r"<p[^>]*>", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"<(b|strong)>", "**", t, flags=re.IGNORECASE)
+    t = re.sub(r"</(b|strong)>", "**", t, flags=re.IGNORECASE)
+    t = re.sub(r"<(i|em)>", "_", t, flags=re.IGNORECASE)
+    t = re.sub(r"</(i|em)>", "_", t, flags=re.IGNORECASE)
+    t = re.sub(r"<li[^>]*>", "• ", t, flags=re.IGNORECASE)
+    t = re.sub(r"</li>", "\n", t, flags=re.IGNORECASE)
+    t = re.sub(r"<[^>]+>", "", t)  # remove qualquer outra tag que sobrou
+    t = html.unescape(t)  # &nbsp;, &amp;, etc.
+    t = re.sub(r"\n{3,}", "\n\n", t)  # não deixa acumular linhas em branco demais
+    return t.strip()
+
+
+def escapar_markdown(texto):
+    """Escapa caracteres que o motor de Markdown do SeaTalk pode interpretar
+    errado (colchetes de link, asteriscos, etc.) quando o texto vem de um
+    campo livre (nome do evento) e não deve virar formatação."""
+    if not texto:
+        return texto
+    return re.sub(r"([\[\]*_])", r"\\\1", texto)
+
+
 def send_seatalk_card(token, summary, meeting_link, event_description=""):
     url = "https://openapi.seatalk.io/messaging/v2/group_chat"
     headers = {
@@ -76,6 +110,8 @@ def send_seatalk_card(token, summary, meeting_link, event_description=""):
     }
 
     link = meeting_link if meeting_link else "https://calendar.google.com"
+    summary_seguro = escapar_markdown(summary)
+    event_description = limpar_descricao_html(event_description)
 
     elements = [
         {
@@ -88,7 +124,7 @@ def send_seatalk_card(token, summary, meeting_link, event_description=""):
             "element_type": "description",
             "description": {
                 "format": 1,
-                "text": f"O treinamento **{summary}** vai começar em 10 minutos!"
+                "text": f"O treinamento **{summary_seguro}** vai começar em 10 minutos!"
             }
         }
     ]
