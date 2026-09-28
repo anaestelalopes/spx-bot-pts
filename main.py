@@ -102,7 +102,7 @@ def escapar_markdown(texto):
     return re.sub(r"([\[\]*_])", r"\\\1", texto)
 
 
-def send_seatalk_card(token, summary, meeting_link, event_description=""):
+def send_seatalk_card(token, summary, meeting_link, event_description="", start_time=None):
     url = "https://openapi.seatalk.io/messaging/v2/group_chat"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -128,6 +128,19 @@ def send_seatalk_card(token, summary, meeting_link, event_description=""):
             }
         }
     ]
+
+    # Data e horário exatos do evento, no fuso de Brasília.
+    if start_time is not None:
+        start_local = start_time.astimezone(zoneinfo.ZoneInfo(TIMEZONE_LOCAL))
+        data_txt = start_local.strftime("%d/%m/%Y")
+        hora_txt = start_local.strftime("%H:%M")
+        elements.append({
+            "element_type": "description",
+            "description": {
+                "format": 1,
+                "text": f"📅 **Data:** {data_txt}\n🕐 **Horário:** {hora_txt}"
+            }
+        })
 
     # Só adiciona o bloco de descrição do evento se ele tiver conteúdo.
     if event_description.strip():
@@ -228,7 +241,7 @@ def check_calendar_and_notify():
                     return
 
             print(f"    -> Notificando evento: {summary}")
-            send_seatalk_card(token, summary, meeting_link, event_description)
+            send_seatalk_card(token, summary, meeting_link, event_description, start_time)
 
             notified[event_id] = now_utc.isoformat()
             houve_mudanca = True
