@@ -124,7 +124,7 @@ def send_seatalk_card(token, summary, meeting_link, event_description=""):
             "element_type": "description",
             "description": {
                 "format": 1,
-                "text": f"O treinamento **{summary_seguro}** vai começar em 10 minutos!"
+                "text": f"O treinamento **{summary_seguro}** vai começar em alguns minutos!"
             }
         }
     ]
