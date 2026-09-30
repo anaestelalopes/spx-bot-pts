@@ -15,7 +15,17 @@ from googleapiclient.discovery import build
 # poder deixar o repositório público sem expor essas credenciais.
 APP_ID = os.environ["SEATALK_APP_ID"]
 APP_SECRET = os.environ["SEATALK_APP_SECRET"]
-GROUP_ID = "NzM0OTYxODk2NDQ5"
+# Lista de grupos do SeaTalk que vão receber os avisos. Pra incluir outro
+# grupo, é só adicionar o group_id dele aqui (e adicionar o bot como membro
+# do grupo no SeaTalk).
+GROUP_IDS = [
+    "NzM0OTYxODk2NDQ5",  # grupo original (teste agenda sea)
+    "OTI3NTA0Njk2NjE2",
+    "OTQxMTIxNjkzMjMw",
+    "Mjk2NZY1NTY5NDUO",
+    "NjY1NzA0NDMwMDAx",
+    # "COLE_AQUI_OS_PROXIMOS_2_GROUP_IDS",
+]
 CALENDAR_ID = "c_ba4842f0ff394c31890a1505258ed5d0f0279c7961766ba64cba3f360725325f@group.calendar.google.com"
 
 CREDENTIALS_FILE = "credentials.json"
@@ -81,10 +91,30 @@ def limpar_descricao_html(texto):
     t = re.sub(r"<br\s*/?>", "\n", t, flags=re.IGNORECASE)
     t = re.sub(r"</p>", "\n\n", t, flags=re.IGNORECASE)
     t = re.sub(r"<p[^>]*>", "", t, flags=re.IGNORECASE)
-    t = re.sub(r"<(b|strong)>", "**", t, flags=re.IGNORECASE)
-    t = re.sub(r"</(b|strong)>", "**", t, flags=re.IGNORECASE)
-    t = re.sub(r"<(i|em)>", "_", t, flags=re.IGNORECASE)
-    t = re.sub(r"</(i|em)>", "_", t, flags=re.IGNORECASE)
+
+    # Negrito: <b>, <strong>, ou <span style="font-weight: bold/700...">,
+    # aceitando qualquer atributo dentro da tag.
+    t = re.sub(r"<(?:b|strong)\b[^>]*>", "**", t, flags=re.IGNORECASE)
+    t = re.sub(r"</(?:b|strong)>", "**", t, flags=re.IGNORECASE)
+    t = re.sub(
+        r'<span\b[^>]*style="[^"]*font-weight\s*:\s*(?:bold|[6-9]00)[^"]*"[^>]*>',
+        "**", t, flags=re.IGNORECASE
+    )
+
+    # Itálico: <i>, <em>, ou <span style="font-style: italic...">.
+    t = re.sub(r"<(?:i|em)\b[^>]*>", "_", t, flags=re.IGNORECASE)
+    t = re.sub(r"</(?:i|em)>", "_", t, flags=re.IGNORECASE)
+    t = re.sub(
+        r'<span\b[^>]*style="[^"]*font-style\s*:\s*italic[^"]*"[^>]*>',
+        "_", t, flags=re.IGNORECASE
+    )
+
+    # Fecha qualquer </span> que tenha sobrado como marcador de negrito/itálico
+    # aberto (não dá pra saber qual símbolo fechar sem rastrear a pilha, então
+    # a técnica prática é: se sobrou </span>, ele já cumpriu o papel de
+    # fechamento em conjunto com o próprio "**"/"_" acima; qualquer </span>
+    # remanescente sem abertura correspondente é apenas removido mais abaixo.
+
     t = re.sub(r"<li[^>]*>", "• ", t, flags=re.IGNORECASE)
     t = re.sub(r"</li>", "\n", t, flags=re.IGNORECASE)
     t = re.sub(r"<[^>]+>", "", t)  # remove qualquer outra tag que sobrou
@@ -94,15 +124,16 @@ def limpar_descricao_html(texto):
 
 
 def escapar_markdown(texto):
-    """Escapa caracteres que o motor de Markdown do SeaTalk pode interpretar
-    errado (colchetes de link, asteriscos, etc.) quando o texto vem de um
-    campo livre (nome do evento) e não deve virar formatação."""
+    """Neutraliza só os colchetes ([ ]) do nome do evento, porque eles fazem
+    o motor de Markdown do SeaTalk tentar interpretar como início de link e
+    quebram a formatação do card inteiro. Deixa `**negrito**` e `_itálico_`
+    passarem livres, caso o nome do evento já venha com essa formatação."""
     if not texto:
         return texto
-    return re.sub(r"([\[\]*_])", r"\\\1", texto)
+    return texto.replace("[", "(").replace("]", ")")
 
 
-def send_seatalk_card(token, summary, meeting_link, event_description="", start_time=None):
+def send_seatalk_card(token, group_id, summary, meeting_link, event_description="", start_time=None):
     url = "https://openapi.seatalk.io/messaging/v2/group_chat"
     headers = {
         "Authorization": f"Bearer {token}",
@@ -171,7 +202,7 @@ def send_seatalk_card(token, summary, meeting_link, event_description="", start_
     )
 
     payload = {
-        "group_id": GROUP_ID,
+        "group_id": group_id,
         "message": {
             "tag": "interactive_message",
             "interactive_message": {
@@ -180,8 +211,13 @@ def send_seatalk_card(token, summary, meeting_link, event_description="", start_
         }
     }
 
-    res = requests.post(url, json=payload, headers=headers, timeout=10)
-    print("Resposta do SeaTalk:", res.text)
+    try:
+        res = requests.post(url, json=payload, headers=headers, timeout=10)
+        print(f"Resposta do SeaTalk (grupo {group_id}):", res.text)
+        return res.json().get("code") == 0
+    except Exception as err:
+        print(f"⚠️ Erro ao enviar pro grupo {group_id}: {err}")
+        return False
 
 
 def check_calendar_and_notify():
@@ -220,8 +256,14 @@ def check_calendar_and_notify():
             print(f"  - '{summary_debug}': evento de dia inteiro (sem horário), ignorado.")
             continue
 
-        if event_id in notified:
-            print(f"  - '{summary_debug}': já tinha sido notificado antes, ignorando.")
+        # O controle de "já avisado" é feito por evento + grupo. Também respeita
+        # registros antigos (só com o id do evento), de antes da lista de grupos.
+        grupos_pendentes = [
+            g for g in GROUP_IDS
+            if event_id not in notified and f"{event_id}|{g}" not in notified
+        ]
+        if not grupos_pendentes:
+            print(f"  - '{summary_debug}': já tinha sido notificado em todos os grupos, ignorando.")
             continue
 
         start_time = datetime.datetime.fromisoformat(start_str)
@@ -241,10 +283,13 @@ def check_calendar_and_notify():
                     return
 
             print(f"    -> Notificando evento: {summary}")
-            send_seatalk_card(token, summary, meeting_link, event_description, start_time)
-
-            notified[event_id] = now_utc.isoformat()
-            houve_mudanca = True
+            for group_id in grupos_pendentes:
+                ok = send_seatalk_card(token, group_id, summary, meeting_link, event_description, start_time)
+                if ok:
+                    notified[f"{event_id}|{group_id}"] = now_utc.isoformat()
+                    houve_mudanca = True
+                else:
+                    print(f"    -> Falha no grupo {group_id}; tenta de novo na próxima execução (se ainda estiver na janela).")
 
     if houve_mudanca:
         save_notified(notified)
