@@ -36,5 +36,34 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add notified_events.json
-          git diff --staged --quiet || git commit -m "Atualiza controle de eventos notificados [skip ci]"
-          git push
+          git diff --staged --quiet && exit 0
+          git commit -m "Atualiza controle de eventos notificados [skip ci]"
+
+          # Outra execução pode estar rodando ao mesmo tempo (o cron-job.org
+          # dispara de 1 em 1 minuto) e já ter empurrado uma versão mais nova
+          # do notified_events.json antes desta. Se o push for rejeitado por
+          # isso, em vez de deixar o Git tentar resolver linha por linha (o
+          # JSON reescreve o arquivo inteiro a cada vez, o que gera conflito
+          # à toa), eu mesmo mesclo o conteúdo dos dois arquivos e tento de
+          # novo - até 5 vezes.
+          for i in 1 2 3 4 5; do
+            if git push; then
+              exit 0
+            fi
+            echo "Push rejeitado (tentativa $i), mesclando com a versão mais recente..."
+            git fetch origin main
+            git show origin/main:notified_events.json > /tmp/remote_notified.json 2>/dev/null || echo '{}' > /tmp/remote_notified.json
+            python3 -c "
+          import json
+          local = json.load(open('notified_events.json'))
+          remote = json.load(open('/tmp/remote_notified.json'))
+          merged = {**remote, **local}
+          json.dump(merged, open('notified_events.json', 'w'), ensure_ascii=False, indent=2)
+          "
+            git reset --soft origin/main
+            git add notified_events.json
+            git diff --staged --quiet || git commit -m "Atualiza controle de eventos notificados [skip ci]"
+            sleep 2
+          done
+          echo "Não consegui salvar o controle de eventos notificados depois de várias tentativas."
+          exit 1
