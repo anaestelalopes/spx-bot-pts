@@ -20,11 +20,12 @@ APP_SECRET = os.environ["SEATALK_APP_SECRET"]
 # do grupo no SeaTalk).
 GROUP_IDS = [
     "NzM0OTYxODk2NDQ5",  # grupo original (teste agenda sea)
-    "OTI3NTA0Njk2NjE2",
-    "OTQxMTIxNjkzMjMw",
-    "Mjk2NZY1NTY5NDUO",
-    "NjY1NzA0NDMwMDAx",
-    # "COLE_AQUI_OS_PROXIMOS_2_GROUP_IDS",
+    "ODk3NDYyOTY5NDA3",  # MG
+    "NzI0MzY5Njk0MTgw",  # SPM/SPC
+    "NzExMzg5MTI0MDAx",  # RJ/ES
+    "MjY0NDQ3ODg1MTky",  # SPI/SPO
+    "MjYwNjAwNzM5Mzk1",  # NE
+    "OTA5NTcwODQ2MzE2",  # SUL
 ]
 CALENDAR_ID = "c_ba4842f0ff394c31890a1505258ed5d0f0279c7961766ba64cba3f360725325f@group.calendar.google.com"
 
