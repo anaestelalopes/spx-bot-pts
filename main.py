@@ -110,12 +110,6 @@ def limpar_descricao_html(texto):
         "_", t, flags=re.IGNORECASE
     )
 
-    # Fecha qualquer </span> que tenha sobrado como marcador de negrito/itálico
-    # aberto (não dá pra saber qual símbolo fechar sem rastrear a pilha, então
-    # a técnica prática é: se sobrou </span>, ele já cumpriu o papel de
-    # fechamento em conjunto com o próprio "**"/"_" acima; qualquer </span>
-    # remanescente sem abertura correspondente é apenas removido mais abaixo.
-
     t = re.sub(r"<li[^>]*>", "• ", t, flags=re.IGNORECASE)
     t = re.sub(r"</li>", "\n", t, flags=re.IGNORECASE)
     t = re.sub(r"<[^>]+>", "", t)  # remove qualquer outra tag que sobrou
@@ -183,6 +177,15 @@ def send_seatalk_card(token, group_id, summary, meeting_link, event_description=
                 "text": event_description.strip()
             }
         })
+
+    # Mensagem de alerta em destaque
+    elements.append({
+        "element_type": "description",
+        "description": {
+            "format": 1,
+            "text": "**⚠️ Não responda - Esta mensagem é automática.**"
+        }
+    })
 
     elements.append(
         {
@@ -257,8 +260,7 @@ def check_calendar_and_notify():
             print(f"  - '{summary_debug}': evento de dia inteiro (sem horário), ignorado.")
             continue
 
-        # O controle de "já avisado" é feito por evento + grupo. Também respeita
-        # registros antigos (só com o id do evento), de antes da lista de grupos.
+        # O controle de "já avisado" é feito por evento + grupo.
         grupos_pendentes = [
             g for g in GROUP_IDS
             if event_id not in notified and f"{event_id}|{g}" not in notified
